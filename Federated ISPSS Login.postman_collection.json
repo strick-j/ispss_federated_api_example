@@ -1,0 +1,337 @@
+{
+	"info": {
+		"_postman_id": "0d18d81a-33f2-4b4a-8010-44f5c325fd8d",
+		"name": "Federated ISPSS Login",
+		"description": "## Process Description\n\nThe purpose of this package is to walk through the process required for a federated user within CyberArk Identity to use the Privilege Cloud API. The federated Identity Provider in this scenario is Okta.\n\n## Process Overview\n\nThere are 5 total steps in this process:\n\n1. Complete Okta Primary Authentication\n    1. Required output from this step is an Okta _sessionToken_\n2. Obtain Okta SAML Assertion for CyberArk ISPSS\n    1. Required output from this step is the _SAML Assertion_ to send to CyberArk ISPSS\n3. Send SAML Assertion from OKta to CyberArk ISPSS\n    1. Required output from this step are the _ISPSS Session Cookies_ required to interact with CyberArk ISPSS\n4. Obtain Privilege Cloud Bearer Token from CyberArk ISPSS\n    1. Required output from this step is the _Bearer Token_ that is used to interact with Privilege Cloud API endpoints\n5. Use Privilege Cloud Bearer Token to interact with Privilege Cloud API Endpoints\n    \n\n## Required Variables:\n\n| **Variable** | **Description** | **Example** |\n| --- | --- | --- |\n| okta_username | Okta username | [john.doe@example.com]() |\n| okta_password | Okta password | SuperSecret123!@# |\n| okta_tenant_id | Okta tenant Id | dev-123456 |\n| okta_embed_app_link | Okta embedded app link. This is found within your Okta admin portal for the SAML App that you have published for CyberArk Identity login. | home/dev-123456_cyberarkidentity_2/0oaajsEXAMPLEty1h5d7/alnajt06bEXAMPLEj5d7 |\n| ispss_subdomain | CyberArk ISPSS Subdomain | subdomain |\n| ispss_tenant_id | CyberArk ISPSS tenant id e.g. abc1234 | abc1234 |",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "8919477"
+	},
+	"item": [
+		{
+			"name": "Step 1: Complete Okta Primary Authentication",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const responseJson = pm.response.json();",
+							"",
+							"// Test response",
+							"pm.test(\"Test array properties\", () => {",
+							"    // Validate status equals success",
+							"    pm.expect(responseJson.status).to.eql(\"SUCCESS\");",
+							"    // Validate sessionToken is not empty",
+							"    pm.expect(responseJson.sessionToken).to.not.be.empty;",
+							"})",
+							"",
+							"// Save sessionToken to environment variable",
+							"pm.environment.set(\"okta_session_token\", responseJson.sessionToken);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"username\": \"{{okta_username}}\",\n  \"password\": \"{{okta_password}}\",\n  \"options\": {\n    \"multiOptionalFactorEnroll\": true,\n    \"warnBeforePasswordExpired\": true\n  }  \n}"
+				},
+				"url": {
+					"raw": "https://{{okta_tenant_id}}.okta.com/api/v1/authn",
+					"protocol": "https",
+					"host": [
+						"{{okta_tenant_id}}",
+						"okta",
+						"com"
+					],
+					"path": [
+						"api",
+						"v1",
+						"authn"
+					]
+				},
+				"description": "Generic Okta authentication request. This request utilizes the username and password for a user and should return a valid _sessionToken._ If MFA is enabled you may need to add an additional request to complete step up authentication.\n\n_Okta Documentation:_ [https://developer.okta.com/docs/reference/api/authn/]()"
+			},
+			"response": []
+		},
+		{
+			"name": "Step 2: Obtain Okta SAML Assertion for ISPSS",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"const $ = cheerio.load(pm.response.text());",
+							"",
+							"const samlResponse = $(\"input[name$='SAMLResponse']\");",
+							"",
+							"// Save Okta provided Relay State to environment variable",
+							"pm.environment.set(\"okta_saml_response\", samlResponse[0].attribs.value);",
+							"",
+							"const relayState = $(\"input[name$='RelayState']\");",
+							"",
+							"// Save Okta provided Relay State to environment variable",
+							"pm.environment.set(\"okta_relay_state\", relayState[0].attribs.value);"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Accept",
+						"value": "application/json"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": ""
+				},
+				"url": {
+					"raw": "https://{{okta_tenant_id}}.okta.com/{{okta_embed_app_link}}?sessionToken={{okta_session_token}}",
+					"protocol": "https",
+					"host": [
+						"{{okta_tenant_id}}",
+						"okta",
+						"com"
+					],
+					"path": [
+						"{{okta_embed_app_link}}"
+					],
+					"query": [
+						{
+							"key": "sessionToken",
+							"value": "{{okta_session_token}}",
+							"description": "Session Token is retrieved from Step 1 - Okta Primary Authentication"
+						}
+					]
+				},
+				"description": "Generic Okta request to obtain a SAML assertion programatically. Utilizes the sessionToken obtained in step 1 and the following variables: okta_tenant_id, okta_embed_app_link to obtain the required SAML assertion.\n\n_Okta Documentation:_ [https://developer.okta.com/docs/guides/session-cookie/main/#visit-an-embed-link-with-the-session-token]()"
+			},
+			"response": []
+		},
+		{
+			"name": "Step 3: Send SAML Assertion from Okta to ISPSS",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test(\"Verify required cookies are present\", () => {",
+							"    // Checks for podloc",
+							"    pm.expect(pm.cookies.has('podloc')).to.be.true;",
+							"    // Checks for userdata",
+							"    pm.expect(pm.cookies.has('userdata')).to.be.true;",
+							"    // Checks for antixss",
+							"    pm.expect(pm.cookies.has('antixss')).to.be.true;",
+							"    // Checks for ccsid",
+							"    pm.expect(pm.cookies.has('ccsid')).to.be.true; ",
+							"    // Checks for sessdata",
+							"    pm.expect(pm.cookies.has('sessdata')).to.be.true;",
+							"    // Checks for .ASPXAUTH",
+							"    pm.expect(pm.cookies.has('.ASPXAUTH')).to.be.true;",
+							"})"
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disableCookies": false
+			},
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "SAMLResponse",
+							"value": "{{okta_saml_response}}",
+							"description": "This is the urldecoded version of the SAML response that was recieved in step 2. There should not be and URL encoded characters (e.g. &#x2b; should be a + and &#x3d: should be =)",
+							"type": "text"
+						},
+						{
+							"key": "RelayState",
+							"value": "{{okta_relay_state}}",
+							"description": "This is based on the relay state from the SAML Assertion in step 2",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "https://{{ispss_tenant_id}}.id.cyberark.cloud/my",
+					"protocol": "https",
+					"host": [
+						"{{ispss_tenant_id}}",
+						"id",
+						"cyberark",
+						"cloud"
+					],
+					"path": [
+						"my"
+					]
+				},
+				"description": "This request sends the SAML Response and Relay State obtained from Okta in the body. The body is of type _form-data_. Note that both variables should be obtained automatically and stored as long as the previous steps completed successfully.\n\nUtilizes the SAML Response and RelayState obtained in Step 2 as well as the following variable: ispss_tenant_id\n\nA successful response will contain at a minimum the following cookies: .ASPXAUTH, antixss, CCSID, podloc, sessdata, userdata\n\n_Identity Documentation:_ [https://identity-developer.cyberark.com/docs/authentication-cookies]()"
+			},
+			"response": []
+		},
+		{
+			"name": "Step 4: Obtain Privilege Cloud Bearer Token from ISPSS",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"pm.test('Verify podloc is present', function(){",
+							"    pm.expect(pm.cookies.has('podloc')).to.be.true;",
+							"})",
+							"",
+							"// Read all cookies into an array",
+							"const availableCookies = pm.cookies.all();",
+							"",
+							"pm.test('Verify idToken is present', function(){",
+							"    pm.expect(availableCookies[1].name).to.include(\"idToken\");",
+							"})",
+							"",
+							"// Take the second element of the array value and set to Environment Variable",
+							"pm.environment.set(\"ispss_priv_cloud_token\", availableCookies[1].value);",
+							""
+						],
+						"type": "text/javascript"
+					}
+				},
+				{
+					"listen": "prerequest",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"protocolProfileBehavior": {
+				"disableCookies": false,
+				"disableBodyPruning": true
+			},
+			"request": {
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://{{ispss_tenant_id}}.id.cyberark.cloud/login?redirectUrl=https%3A%2F%2F{{ispss_subdomain}}.cyberark.cloud%2Findex.html",
+					"protocol": "https",
+					"host": [
+						"{{ispss_tenant_id}}",
+						"id",
+						"cyberark",
+						"cloud"
+					],
+					"path": [
+						"login"
+					],
+					"query": [
+						{
+							"key": "redirectUrl",
+							"value": "https%3A%2F%2F{{ispss_subdomain}}.cyberark.cloud%2Findex.html"
+						}
+					]
+				},
+				"description": "This request utilizes the cookies returned in the response of Step 3. As long as the SAML Assertion completed in step 3 was successful, the CyberArk ISPSS tenant will respond and set 6 required cookies that may be used for subsequent authentication.\n\nThe output of this call should contain 4 cookies, one of which is utilized as the Bearer Token to Authenticate to the Privilege Cloud API. The idToken-UUID is the cookie that we extract for use in Step 5."
+			},
+			"response": []
+		},
+		{
+			"name": "Step 5: Use Privilege Cloud Bearer Token to Interact with Privilege Cloud",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							""
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "{{ispss_priv_cloud_token}}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "https://{{ispss_subdomain}}.privilegecloud.cyberark.cloud/passwordvault/api/safes",
+					"protocol": "https",
+					"host": [
+						"{{ispss_subdomain}}",
+						"privilegecloud",
+						"cyberark",
+						"cloud"
+					],
+					"path": [
+						"passwordvault",
+						"api",
+						"safes"
+					]
+				},
+				"description": "Generic request to return safe information for safes that the federated user has access to. Note: In order for this request to work the federated user should have access to at least one safe. The _idToken_ retrieved in step 5 is used as the Bearer Token for this step.\n\n_CyberArk Documentation:_ [https://docs.cyberark.com/PrivCloud-SS/Latest/en/Content/SDK/Safes%20Web%20Services%20-%20List%20Safes.htm#URL]()"
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "okta_session_token",
+			"value": ""
+		}
+	]
+}
